@@ -1,0 +1,49 @@
+rSLDS DYNAMICS ANALYSIS REPORT
+============================================================
+
+Model: Recurrent Switching Linear Dynamical System
+Discrete States: K=4
+Continuous Latent Dims: D=3
+Data cutoff: First 300s discarded
+Final Log-Likelihood: -546632.08
+
+MODEL SELECTION:
+  Tested K ∈ [2, 3, 4, 5, 6]
+  Selected K=4 (BIC criterion)
+
+  Comparison table:
+  K     LL           AIC          BIC         
+  ---------------------------------------------
+  2     -551641.5    1104835.1    1109664.0   
+  3     -548252.5    1098839.0    1106101.1   
+  4     -546632.1    1096384.2    1106091.8    *
+  5     -549561.8    1103033.7    1115199.3   
+  6     -545278.4    1095260.9    1109897.0   
+
+OCCUPANCY RATES:
+  Overall:
+    State 1: 0.372
+    State 2: 0.022
+    State 3: 0.022
+    State 4: 0.584
+  Before Reunion:
+    State 1: 0.241
+    State 2: 0.005
+    State 3: 0.019
+    State 4: 0.735
+  After (Non-social):
+    State 1: 0.400
+    State 2: 0.010
+    State 3: 0.018
+    State 4: 0.572
+  Social Interaction:
+    State 1: 0.582
+    State 2: 0.112
+    State 3: 0.046
+    State 4: 0.260
+
+ENERGY LANDSCAPE:
+  State 1: Energy = 0.171, π = 0.4169
+  State 2: Energy = 2.029, π = 0.0650
+  State 3: Energy = 3.055, π = 0.0233
+  State 4: Energy = 0.000, π = 0.4947
