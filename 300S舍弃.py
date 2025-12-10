@@ -1127,7 +1127,7 @@ def main():
 
     # ==================== 2. 模型比较（新增） ====================
     # 设置开关：是否进行模型比较
-    ENABLE_MODEL_COMPARISON = True  # 改成 False 则跳过比较，直接用 K_states
+    ENABLE_MODEL_COMPARISON = False  # 改成 False 则跳过比较，直接用 K_states
 
     if ENABLE_MODEL_COMPARISON:
         print("\n" + "🔍" * 35)
