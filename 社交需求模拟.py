@@ -330,6 +330,22 @@ def main():
     need_raw, need_z, w = compute_social_need(betas, spikes_epoch)
     print("✓ Computed social need index (raw + z-score)")
 
+    # ☆ 建议：把 Need(t) 和社交轴 w 存成一个 npz，供后续 HMM 等分析直接使用
+    need_npz_path = os.path.join(need_out_dir, "social_need_timeseries_from_three_state_glm.npz")
+    np.savez(
+        need_npz_path,
+        need_raw=need_raw,  # (T,)
+        need_z=need_z,  # (T,)
+        w_social=w,  # (N,)
+        t_epoch=t_epoch,  # (T,)
+        labels_epoch=labels_epoch,
+        dt=dt,
+        reunion_abs=reunion_abs,
+        epoch_start=epoch_start,
+        epoch_end=epoch_end,
+    )
+    print(f"✓ Saved social need timeseries: {need_npz_path}")
+
     # 2) 画时间进程图
     time_fig = plot_need_timecourse(need_z, t_epoch, labels_epoch, reunion_abs, need_out_dir)
 
