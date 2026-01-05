@@ -50,6 +50,14 @@ BOUT_PRE_S = 60.0
 BOUT_POST_S = 180.0
 MIN_PRE_FRAMES = 50
 MIN_POST_FRAMES = 50
+# --- per-bout windows to scan (seconds) ---
+BOUT_WINDOWS = [
+    ("inst_3s",   3.0,   3.0),   # [-3, +3]
+    ("inst_5s",   5.0,   5.0),   # [-5, +5]
+    ("short",    10.0,  30.0),   # [-10, +30]
+    ("mid",      30.0,  60.0),   # [-30, +60]
+    ("long",     60.0, 180.0),   # [-60, +180] 你现在这套
+]
 
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'SimHei']
 plt.rcParams['axes.unicode_minus'] = False
@@ -244,17 +252,27 @@ def global_step_test_nontouch(labels4, t, S_z, reunion_abs, last_end_abs, dt):
     )
     return out
 
-def per_bout_step_tests(t, S_z, social_intervals, dt, reunion_abs, axis_tag, baseline_tag):
+def per_bout_step_tests(t, S_z, social_intervals, dt, reunion_abs,
+                        axis_tag, baseline_tag,
+                        win_tag, pre_s, post_s,
+                        min_pre_frames=None, min_post_frames=None,
+                        hac_lag_s=2.0):
     """
     For each bout end e:
-      window [e-BOUT_PRE, e+BOUT_POST]
+      window [e-pre_s, e+post_s]
       y = a + b*time_z + g*I(rel_t>=0) + eps
-    Returns df with one row per bout and saves summary plots.
     """
+
+    # 自动设置最小帧数：至少覆盖窗口的 ~60%（并且至少 10 帧）
+    if min_pre_frames is None:
+        min_pre_frames = max(10, int(np.ceil(0.6 * pre_s / dt)))
+    if min_post_frames is None:
+        min_post_frames = max(10, int(np.ceil(0.6 * post_s / dt)))
+
     rows = []
     for bi, (_, e) in enumerate(social_intervals):
-        t0 = e - BOUT_PRE_S
-        t1 = e + BOUT_POST_S
+        t0 = e - pre_s
+        t1 = e + post_s
         i0 = int(np.searchsorted(t, t0, side="left"))
         i1 = int(np.searchsorted(t, t1, side="right")) - 1
         if i1 <= i0:
@@ -266,10 +284,9 @@ def per_bout_step_tests(t, S_z, social_intervals, dt, reunion_abs, axis_tag, bas
 
         pre = rel < 0
         post = rel >= 0
-        if pre.sum() < MIN_PRE_FRAMES or post.sum() < MIN_POST_FRAMES:
+        if pre.sum() < min_pre_frames or post.sum() < min_post_frames:
             continue
 
-        # time_z within window
         time_z = (rel - rel.mean()) / (rel.std() + 1e-6)
         step = (rel >= 0).astype(float)
 
@@ -279,7 +296,9 @@ def per_bout_step_tests(t, S_z, social_intervals, dt, reunion_abs, axis_tag, bas
         cov_type = "nonrobust"
         cov_kwds = None
         if USE_HAC:
-            maxlags = int(np.clip(round(HAC_LAG_S / max(dt, 1e-6)), 1, 200))
+            # HAC lag 不要超过窗口长度的一半，避免“lag 过大”
+            eff_hac = min(hac_lag_s, 0.5 * (pre_s + post_s))
+            maxlags = int(np.clip(round(eff_hac / max(dt, 1e-6)), 1, 200))
             cov_type = "HAC"
             cov_kwds = {"maxlags": maxlags}
 
@@ -287,6 +306,7 @@ def per_bout_step_tests(t, S_z, social_intervals, dt, reunion_abs, axis_tag, bas
         a, b, g = res.params
 
         rows.append(dict(
+            win_tag=win_tag, pre_s=pre_s, post_s=post_s,
             bout_index=bi,
             bout_end_abs=float(e),
             bout_end_rel=float(e - reunion_abs),
@@ -297,10 +317,14 @@ def per_bout_step_tests(t, S_z, social_intervals, dt, reunion_abs, axis_tag, bas
         ))
 
     df = pd.DataFrame(rows)
-    csv_path = os.path.join(OUTDIR, f"per_bout_step_{axis_tag}__baseline_{baseline_tag}.csv")
+
+    # 输出：每窗一份
+    csv_path = os.path.join(
+        OUTDIR, f"per_bout_step_{axis_tag}__baseline_{baseline_tag}__{win_tag}.csv"
+    )
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-    # plots: gamma distribution
+    # 分布图：每窗一份
     if len(df) > 0:
         gam = df["gamma_step"].values
 
@@ -309,23 +333,16 @@ def per_bout_step_tests(t, S_z, social_intervals, dt, reunion_abs, axis_tag, bas
         plt.axvline(0, linestyle="--", linewidth=1.2)
         plt.xlabel("Per-bout gamma (step at bout end)")
         plt.ylabel("Count")
-        plt.title(f"Per-bout step gamma distribution | {axis_tag} | baseline={baseline_tag} | n_bouts={len(df)}")
+        plt.title(f"{axis_tag} | {baseline_tag} | {win_tag}  [-{pre_s:.0f},+{post_s:.0f}]s | n={len(df)}")
         plt.grid(alpha=0.3)
         plt.tight_layout()
-        plt.savefig(os.path.join(OUTDIR, f"per_bout_gamma_hist_{axis_tag}__baseline_{baseline_tag}.png"), dpi=300)
-        plt.close()
-
-        plt.figure(figsize=(6.4, 4.2))
-        plt.boxplot(gam, vert=True)
-        plt.axhline(0, linestyle="--", linewidth=1.2)
-        plt.ylabel("Per-bout gamma")
-        plt.title(f"Per-bout gamma box | {axis_tag} | baseline={baseline_tag}")
-        plt.grid(alpha=0.3, axis="y")
-        plt.tight_layout()
-        plt.savefig(os.path.join(OUTDIR, f"per_bout_gamma_box_{axis_tag}__baseline_{baseline_tag}.png"), dpi=300)
+        plt.savefig(os.path.join(
+            OUTDIR, f"per_bout_gamma_hist_{axis_tag}__baseline_{baseline_tag}__{win_tag}.png"
+        ), dpi=300)
         plt.close()
 
     return df, csv_path
+
 
 # ===================== MAIN =====================
 def main():
@@ -503,10 +520,8 @@ def main():
                   index=False, encoding="utf-8-sig")
 
         # ---- Per-bout step tests at each bout end (touch->non-touch transition) ----
-        df_bout_nt, csv_nt = per_bout_step_tests(t, S_nt, social_intervals, dt, REUNION_ABS,
-                                                axis_tag="NT_axis", baseline_tag=baseline_mode)
-        df_bout_t,  csv_t  = per_bout_step_tests(t, S_tz, social_intervals, dt, REUNION_ABS,
-                                                axis_tag="TOUCH_axis", baseline_tag=baseline_mode)
+        # ---- Per-bout window sensitivity scan ----
+        sens_rows = []
 
         def bout_summary(df, axis_name):
             if len(df) == 0:
@@ -514,9 +529,8 @@ def main():
                             ttest_p=np.nan, wilcoxon_p=np.nan)
             gam = df["gamma_step"].values
             t_p = ttest_1samp(gam, 0.0, nan_policy="omit").pvalue if len(gam) >= 3 else np.nan
-            # wilcoxon requires non-zero diffs; handle safely
             try:
-                w_p = wilcoxon(gam - 0.0).pvalue
+                w_p = wilcoxon(gam).pvalue
             except Exception:
                 w_p = np.nan
             return dict(axis=axis_name, n_bouts=len(gam),
@@ -525,19 +539,38 @@ def main():
                         ttest_p=float(t_p) if np.isfinite(t_p) else np.nan,
                         wilcoxon_p=float(w_p) if np.isfinite(w_p) else np.nan)
 
-        bs_nt = bout_summary(df_bout_nt, "NT-axis")
-        bs_t  = bout_summary(df_bout_t,  "TOUCH-axis")
+        print("\nPer-bout window scan @ bout end:")
+        for win_tag, pre_s, post_s in BOUT_WINDOWS:
+            # short windows: shorter HAC lag; long windows: keep 2s
+            hac_lag = 0.5 if (pre_s + post_s) <= 20 else 2.0
 
-        print("\nPer-bout step @ bout end (windowed; control time trend):")
-        print(f"  NT-axis:    n_bouts={bs_nt['n_bouts']}, mean_gamma={bs_nt['mean_gamma']:.6g}, "
-              f"median={bs_nt['median_gamma']:.6g}, ttest_p={bs_nt['ttest_p']:.3g}, wilcoxon_p={bs_nt['wilcoxon_p']:.3g}")
-        print(f"  TOUCH-axis: n_bouts={bs_t['n_bouts']}, mean_gamma={bs_t['mean_gamma']:.6g}, "
-              f"median={bs_t['median_gamma']:.6g}, ttest_p={bs_t['ttest_p']:.3g}, wilcoxon_p={bs_t['wilcoxon_p']:.3g}")
-        print(f"  (csv) {axis_name_path('NT-axis') if False else ''}".strip())
+            df_bout_nt, _ = per_bout_step_tests(
+                t, S_nt, social_intervals, dt, REUNION_ABS,
+                axis_tag="NT_axis", baseline_tag=baseline_mode,
+                win_tag=win_tag, pre_s=pre_s, post_s=post_s,
+                hac_lag_s=hac_lag
+            )
+            df_bout_t, _ = per_bout_step_tests(
+                t, S_tz, social_intervals, dt, REUNION_ABS,
+                axis_tag="TOUCH_axis", baseline_tag=baseline_mode,
+                win_tag=win_tag, pre_s=pre_s, post_s=post_s,
+                hac_lag_s=hac_lag
+            )
 
-        pd.DataFrame([dict(baseline=baseline_mode, **bs_nt),
-                      dict(baseline=baseline_mode, **bs_t)]).to_csv(
-            os.path.join(OUTDIR, f"per_bout_step_summary__baseline_{baseline_mode}.csv"),
+            bs_nt = bout_summary(df_bout_nt, "NT-axis")
+            bs_t = bout_summary(df_bout_t, "TOUCH-axis")
+
+            sens_rows.append(dict(baseline=baseline_mode, win_tag=win_tag, pre_s=pre_s, post_s=post_s, **bs_nt))
+            sens_rows.append(dict(baseline=baseline_mode, win_tag=win_tag, pre_s=pre_s, post_s=post_s, **bs_t))
+
+            print(f"  [{win_tag:8s}] NT-axis    n={bs_nt['n_bouts']:2d} mean_g={bs_nt['mean_gamma']:+.3f} "
+                  f"t_p={bs_nt['ttest_p']:.3g} w_p={bs_nt['wilcoxon_p']:.3g}")
+            print(f"  [{win_tag:8s}] TOUCH-axis n={bs_t['n_bouts']:2d} mean_g={bs_t['mean_gamma']:+.3f} "
+                  f"t_p={bs_t['ttest_p']:.3g} w_p={bs_t['wilcoxon_p']:.3g}")
+
+        df_sens = pd.DataFrame(sens_rows)
+        df_sens.to_csv(
+            os.path.join(OUTDIR, f"per_bout_window_sensitivity__baseline_{baseline_mode}.csv"),
             index=False, encoding="utf-8-sig"
         )
 
